@@ -55,6 +55,54 @@ public class MacSerialPortEnumeratorTests
         Assert.Equal(2, paths.Count);
         Assert.Equal("/dev/cu.usbserial-1200", paths[0]);
     }
+
+    [Fact]
+    public void ParseUsbSerialCallouts_pairs_cdc_modem_with_parent_ids()
+    {
+        const string sample = """
+            +-o USB2.1 Hub@00100000  <class IOUSBHostDevice, id 0x1>
+            |   "idProduct" = 1120
+            |   "USB Product Name" = "USB2.1 Hub"
+            |   "idVendor" = 6309
+            +-o ACM adapter@01120000  <class IOUSBHostDevice, id 0x2>
+            |   "idProduct" = 22136
+            |   "USB Product Name" = "ACM serial adapter"
+            |   "idVendor" = 4660
+            |   +-o IOSerialBSDClient  <class IOSerialBSDClient, id 0x3>
+            |       "IOCalloutDevice" = "/dev/cu.usbmodem11201"
+            """;
+
+        var ports = MacSerialPortEnumerator.ParseUsbSerialCallouts(sample);
+
+        Assert.Single(ports);
+        Assert.Equal("/dev/cu.usbmodem11201", ports[0].CalloutPath);
+        Assert.Equal(0x1234, ports[0].VendorId);
+        Assert.Equal(0x5678, ports[0].ProductId);
+        Assert.Equal("ACM serial adapter", ports[0].ProductName);
+        Assert.Equal(0, ports[0].PortIndex);
+    }
+
+    [Fact]
+    public void ParseUsbSerialCallouts_numbers_two_ports_on_one_device()
+    {
+        const string sample = """
+            +-o Dual RS232-HS@00120000  <class IOUSBHostDevice, id 0x1>
+            |   "idProduct" = 24592
+            |   "idVendor" = 1027
+            |   "USB Product Name" = "Dual RS232-HS"
+            |   "USB Serial Number" = "ABCD1234"
+            |   "IOCalloutDevice" = "/dev/cu.usbserial-1201"
+            |   "IOCalloutDevice" = "/dev/cu.usbserial-1200"
+            """;
+
+        var ports = MacSerialPortEnumerator.ParseUsbSerialCallouts(sample);
+
+        Assert.Equal(2, ports.Count);
+        Assert.Equal(0, ports[0].PortIndex);
+        Assert.Equal(1, ports[1].PortIndex);
+        Assert.Equal(0x0403, ports[0].VendorId);
+        Assert.Equal("ABCD1234", ports[1].SerialNumber);
+    }
 }
 
 public class DeviceFilterSerialTests
@@ -245,6 +293,35 @@ public class DeviceConnectionConfigTests
         service.PushArrayElement("devices", entry);
 
         Assert.Null(DeviceConnectionConfig.TryRead(service));
+    }
+
+    [Fact]
+    public void Description_labels_the_match_and_does_not_filter()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var entry = new Ape.Core.Config.Models.ConfigNode();
+        entry.SetString("type", "serial");
+        entry.SetString("vendorId", "0x0403");
+        entry.SetString("productId", "0x6010");
+        entry.SetString("description", "bench adapter");
+        service.PushArrayElement("devices", entry);
+
+        var targets = DeviceConnectionConfig.ReadTargets(service);
+        Assert.Single(targets);
+        Assert.Equal("bench adapter", targets[0].Description);
+
+        var enumerator = new SerialPortEnumerator.PassthroughSerialPortEnumerator(
+        [
+            new SerialPortInfo("/dev/cu.usbserial-1200", 0x0403, 0x6010, portIndex: 0),
+            new SerialPortInfo("/dev/cu.other", 0x1111, 0x2222, portIndex: 0),
+        ]);
+        var manager = new Services.DeviceManagement.DeviceManager(null!, null!, enumerator);
+        manager.SetConnectionTargets(targets);
+
+        var matches = manager.QuerySerialPorts(DeviceFilter.ByType(DeviceType.Serial));
+        Assert.Single(matches);
+        Assert.Equal("/dev/cu.usbserial-1200", matches[0].DevicePath);
+        Assert.Equal("bench adapter", matches[0].FriendlyName);
     }
 }
 

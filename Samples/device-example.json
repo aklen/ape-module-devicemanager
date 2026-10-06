@@ -9,7 +9,15 @@
     },
     "Ape.Module.DeviceManager": {
       "services": {
-        "DeviceManagerService": {}
+        "DeviceManagerService": {
+          "devices": [
+            {
+              "type": "serial",
+              "vendorId": "0x1546",
+              "productId": "0x01a9"
+            }
+          ]
+        }
       },
       "plugins": {
         "DeviceExample": {}
