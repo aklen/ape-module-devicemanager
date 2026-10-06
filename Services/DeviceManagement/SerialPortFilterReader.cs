@@ -3,12 +3,17 @@ using Ape.Module.DeviceManager.SceneEntities.Models;
 
 namespace Ape.Module.DeviceManager.Services.DeviceManagement;
 
-/// <summary>Builds <see cref="DeviceFilter"/> for USB serial devices from host JSON.</summary>
+/// <summary>Builds a <see cref="DeviceFilter"/> for a serial or HID target in host JSON.</summary>
 public static class SerialPortFilterReader
 {
     public static DeviceFilter? TryParse(IConfigNode? serialNode, bool applyPortIndex = true)
     {
         if (serialNode == null)
+        {
+            return null;
+        }
+
+        if (!TryResolveType(serialNode, out var deviceType))
         {
             return null;
         }
@@ -23,15 +28,15 @@ public static class SerialPortFilterReader
         }
 
         var filter = hasUsbIds
-            ? DeviceFilter.ByType(DeviceType.Serial).And(DeviceFilter.ByVendorProduct(vendorId, productId))
-            : DeviceFilter.ByType(DeviceType.Serial).And(DeviceFilter.ByPath(path));
+            ? DeviceFilter.ByType(deviceType).And(DeviceFilter.ByVendorProduct(vendorId, productId))
+            : DeviceFilter.ByType(deviceType).And(DeviceFilter.ByPath(path));
 
         if (hasUsbIds && !string.IsNullOrWhiteSpace(path))
         {
             filter = filter.And(DeviceFilter.ByPath(path));
         }
 
-        if (hasUsbIds && applyPortIndex && serialNode.HasKey("portIndex"))
+        if (deviceType == DeviceType.Serial && hasUsbIds && applyPortIndex && serialNode.HasKey("portIndex"))
         {
             filter = filter.And(DeviceFilter.ByPortIndex(serialNode.GetInt("portIndex")));
         }
@@ -49,6 +54,30 @@ public static class SerialPortFilterReader
         }
 
         return filter;
+    }
+
+    private static bool TryResolveType(IConfigNode node, out DeviceType deviceType)
+    {
+        deviceType = DeviceType.Unknown;
+        if (!node.HasKey("type"))
+        {
+            return false;
+        }
+
+        var raw = node.GetString("type", "");
+        if (raw.Equals("serial", StringComparison.OrdinalIgnoreCase))
+        {
+            deviceType = DeviceType.Serial;
+            return true;
+        }
+
+        if (raw.Equals("hid", StringComparison.OrdinalIgnoreCase))
+        {
+            deviceType = DeviceType.HID;
+            return true;
+        }
+
+        return false;
     }
 
     private static string FirstPath(IConfigNode serialNode)

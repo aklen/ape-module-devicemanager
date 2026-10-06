@@ -34,18 +34,30 @@ Enable it in `workspace.yaml` under `modules:` (`name: Ape.Module.DeviceManager`
 "Ape.Module.DeviceManager": {
   "services": {
     "DeviceManagerService": {
-      "serial": {
-        "vendorId": "0x0403",
-        "productId": "0x6010",
-        "portIndex": 0
-      }
+      "devices": [
+        {
+          "type": "serial",
+          "vendorId": "0x0403",
+          "productId": "0x6010",
+          "portIndex": 0
+        },
+        {
+          "type": "hid",
+          "vendorId": "0x046d",
+          "productId": "0xc52b"
+        },
+        {
+          "type": "hid",
+          "path": "/dev/hidraw0"
+        }
+      ]
     }
   },
   "plugins": { "DeviceExample": {} }
 }
 ```
 
-`DeviceManagerService` with an empty object names no device, so the sample does not open a port or create a `Device` replica. A target is a `serial` object or a `devices` array entry with `vendorId` + `productId`, or a `path`.
+`DeviceManagerService` with an empty object, or a `devices` list with no usable entry, names no device. The sample then does not open a port or create a `Device` replica. Every entry needs `type` (`serial` or `hid`) and either `vendorId` + `productId` or a `path`.
 
 Plugins resolve `IDeviceManager` from DI. Open serial with `SerialPortOptions` parsed from host JSON (`baudRate`, `parity`, …) — hardware-specific line settings belong in the product host file, not in this module.
 

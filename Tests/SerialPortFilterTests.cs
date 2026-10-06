@@ -134,13 +134,15 @@ public class DeviceConnectionConfigTests
     }
 
     [Fact]
-    public void TryRead_matches_vendor_product_from_serial_object()
+    public void TryRead_matches_vendor_product_from_serial_entry()
     {
         var service = new Ape.Core.Config.Models.ConfigNode();
-        var serial = service.GetObject("serial");
+        var serial = new Ape.Core.Config.Models.ConfigNode();
+        serial.SetString("type", "serial");
         serial.SetString("vendorId", "0x0403");
         serial.SetString("productId", "0x6010");
         serial.SetInt("portIndex", 0);
+        service.PushArrayElement("devices", serial);
 
         var filter = DeviceConnectionConfig.TryRead(service);
         Assert.NotNull(filter);
@@ -159,6 +161,7 @@ public class DeviceConnectionConfigTests
     {
         var service = new Ape.Core.Config.Models.ConfigNode();
         var entry = new Ape.Core.Config.Models.ConfigNode();
+        entry.SetString("type", "serial");
         entry.SetString("path", "/dev/cu.usbserial-1200");
         service.PushArrayElement("devices", entry);
 
@@ -172,6 +175,76 @@ public class DeviceConnectionConfigTests
 
         Assert.True(filter!.Predicate(match));
         Assert.False(filter.Predicate(other));
+    }
+
+    [Fact]
+    public void TryRead_matches_hid_vendor_product()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var hid = new Ape.Core.Config.Models.ConfigNode();
+        hid.SetString("type", "hid");
+        hid.SetString("vendorId", "0x046D");
+        hid.SetString("productId", "0xC52B");
+        service.PushArrayElement("devices", hid);
+
+        var filter = DeviceConnectionConfig.TryRead(service);
+        Assert.NotNull(filter);
+
+        var match = new DeviceInternal
+        {
+            DeviceType = DeviceType.HID,
+            VendorId = 0x046D,
+            ProductId = 0xC52B,
+            DevicePath = "hid:matching",
+        };
+        var sameIdsOnSerial = SerialPortDeviceFactory.ToDeviceInternal(
+            new SerialPortInfo("/dev/cu.usbserial-1200", 0x046D, 0xC52B));
+
+        Assert.True(filter!.Predicate(match));
+        Assert.False(filter.Predicate(sameIdsOnSerial));
+    }
+
+    [Fact]
+    public void TryRead_matches_hid_path_in_devices_list()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var entry = new Ape.Core.Config.Models.ConfigNode();
+        entry.SetString("type", "hid");
+        entry.SetString("path", "hid:gamepad");
+        service.PushArrayElement("devices", entry);
+
+        var filter = DeviceConnectionConfig.TryRead(service);
+        Assert.NotNull(filter);
+
+        var match = new DeviceInternal { DeviceType = DeviceType.HID, DevicePath = "hid:gamepad" };
+        var other = new DeviceInternal { DeviceType = DeviceType.HID, DevicePath = "hid:other" };
+
+        Assert.True(filter!.Predicate(match));
+        Assert.False(filter.Predicate(other));
+    }
+
+    [Fact]
+    public void TryRead_ignores_unsupported_device_type()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var entry = new Ape.Core.Config.Models.ConfigNode();
+        entry.SetString("type", "bluetooth");
+        entry.SetString("path", "/dev/cu.JBLCharge4");
+        service.PushArrayElement("devices", entry);
+
+        Assert.Null(DeviceConnectionConfig.TryRead(service));
+    }
+
+    [Fact]
+    public void TryRead_ignores_an_entry_without_type()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var entry = new Ape.Core.Config.Models.ConfigNode();
+        entry.SetString("vendorId", "0x0403");
+        entry.SetString("productId", "0x6010");
+        service.PushArrayElement("devices", entry);
+
+        Assert.Null(DeviceConnectionConfig.TryRead(service));
     }
 }
 

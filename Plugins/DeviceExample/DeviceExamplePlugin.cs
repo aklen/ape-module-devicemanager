@@ -127,7 +127,7 @@ public sealed class DeviceExamplePlugin : IPlugin, IDeterministicFrameParticipan
                     };
 
                     _ = handler.OpenAsync();
-                    _logger?.LogInfo($"[{Name}] Opened serial {path}");
+                    _logger?.LogInfo($"[{Name}] Opened {device.DeviceType} {path}");
                 }
             });
     }

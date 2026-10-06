@@ -22,28 +22,21 @@ public static class DeviceConnectionConfig
     }
 
     /// <summary>
-    /// Reads <c>serial</c> and <c>devices</c> from the <c>DeviceManagerService</c> object.
-    /// Each entry needs <c>vendorId</c>+<c>productId</c> or <c>path</c>. Anything else is ignored.
+    /// Reads <c>devices</c> from the <c>DeviceManagerService</c> object.
+    /// Each entry needs <c>type</c> (<c>serial</c> or <c>hid</c>) and either <c>vendorId</c>+<c>productId</c> or <c>path</c>.
+    /// Entries without a supported type are ignored.
     /// </summary>
     public static DeviceFilter? TryRead(IConfigNode? serviceNode)
     {
-        if (serviceNode == null)
+        if (serviceNode == null || !serviceNode.HasKey("devices"))
         {
             return null;
         }
 
         var filters = new List<DeviceFilter>();
-        if (serviceNode.TryGetChildObject("serial", out var serial))
+        foreach (var entry in serviceNode.GetArray("devices"))
         {
-            Add(filters, SerialPortFilterReader.TryParse(serial));
-        }
-
-        if (serviceNode.HasKey("devices"))
-        {
-            foreach (var entry in serviceNode.GetArray("devices"))
-            {
-                Add(filters, SerialPortFilterReader.TryParse(entry));
-            }
+            Add(filters, SerialPortFilterReader.TryParse(entry));
         }
 
         if (filters.Count == 0)
