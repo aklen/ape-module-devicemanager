@@ -53,6 +53,7 @@ public class DeviceManager : IDeviceManager
     private readonly ISerialPortEnumerator _serialPortEnumerator;
     private readonly object _lock = new();
     private DeviceFilter? _connectionFilter;
+    private IReadOnlyList<DeviceTarget> _targets = [];
 
     private Task? _scanTask;
     private CancellationTokenSource? _cts;
@@ -73,6 +74,16 @@ public class DeviceManager : IDeviceManager
         lock (_lock)
         {
             _connectionFilter = filter;
+            _targets = [];
+        }
+    }
+
+    internal void SetConnectionTargets(IReadOnlyList<DeviceTarget> targets)
+    {
+        lock (_lock)
+        {
+            _targets = targets ?? [];
+            _connectionFilter = CombineTargets(_targets);
         }
     }
 
@@ -247,7 +258,11 @@ public class DeviceManager : IDeviceManager
 
         return _serialPortEnumerator.Enumerate()
             .Select(SerialPortDeviceFactory.ToDeviceInternal)
-            .Cast<IDevice>()
+            .Select(device =>
+            {
+                ApplyDescription(device);
+                return (IDevice)device;
+            })
             .Where(device => connection.Predicate(device) && filter.Predicate(device))
             .ToList();
     }
@@ -357,7 +372,8 @@ public class DeviceManager : IDeviceManager
                             Connected = true,
                             LastUpdate = DateTime.UtcNow
                         };
-                        
+                        ApplyDescription(deviceNodeInternal);
+
                         if (!IsConfiguredDevice(deviceNodeInternal))
                             continue;
 
@@ -399,6 +415,7 @@ public class DeviceManager : IDeviceManager
                             continue;
 
                         var deviceNodeInternal = SerialPortDeviceFactory.ToDeviceInternal(portInfo);
+                        ApplyDescription(deviceNodeInternal);
                         if (!IsConfiguredDevice(deviceNodeInternal))
                             continue;
 
@@ -495,6 +512,40 @@ public class DeviceManager : IDeviceManager
         lock (_lock)
         {
             return _connectionFilter;
+        }
+    }
+
+    private static DeviceFilter? CombineTargets(IReadOnlyList<DeviceTarget> targets)
+    {
+        DeviceFilter? combined = null;
+        foreach (var target in targets)
+        {
+            combined = combined == null ? target.Filter : combined.Or(target.Filter);
+        }
+
+        return combined;
+    }
+
+    private void ApplyDescription(IDevice device)
+    {
+        string? description = null;
+        lock (_lock)
+        {
+            foreach (var target in _targets)
+            {
+                if (string.IsNullOrWhiteSpace(target.Description) || !target.Filter.Predicate(device))
+                {
+                    continue;
+                }
+
+                description = target.Description;
+                break;
+            }
+        }
+
+        if (description != null)
+        {
+            device.FriendlyName = description;
         }
     }
 

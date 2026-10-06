@@ -50,9 +50,9 @@ public sealed class DeviceManagerService : IPluggableService
         }
 
         _deviceManager = new DeviceManager(_sceneManager, _logger);
-        var connection = DeviceConnectionConfig.TryRead(ReadServiceNode(services));
-        _targetsConfigured = connection != null;
-        _deviceManager.SetConnectionFilter(connection);
+        var targets = DeviceConnectionConfig.ReadTargets(ReadServiceNode(services));
+        _targetsConfigured = targets.Count > 0;
+        _deviceManager.SetConnectionTargets(targets);
         if (!_targetsConfigured)
         {
             _logger.LogInfo($"[{Name}] No device target in config — not connecting or registering devices.");

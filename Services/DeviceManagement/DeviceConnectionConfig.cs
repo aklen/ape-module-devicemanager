@@ -24,19 +24,37 @@ public static class DeviceConnectionConfig
     /// <summary>
     /// Reads <c>devices</c> from the <c>DeviceManagerService</c> object.
     /// Each entry needs <c>type</c> (<c>serial</c> or <c>hid</c>) and either <c>vendorId</c>+<c>productId</c> or <c>path</c>.
+    /// Optional <c>description</c> is a label for the user. It does not filter.
     /// Entries without a supported type are ignored.
     /// </summary>
-    public static DeviceFilter? TryRead(IConfigNode? serviceNode)
+    public static IReadOnlyList<DeviceTarget> ReadTargets(IConfigNode? serviceNode)
     {
         if (serviceNode == null || !serviceNode.HasKey("devices"))
         {
-            return null;
+            return [];
         }
 
-        var filters = new List<DeviceFilter>();
+        var targets = new List<DeviceTarget>();
         foreach (var entry in serviceNode.GetArray("devices"))
         {
-            Add(filters, SerialPortFilterReader.TryParse(entry));
+            var filter = SerialPortFilterReader.TryParse(entry);
+            if (filter == null)
+            {
+                continue;
+            }
+
+            targets.Add(new DeviceTarget(filter, entry.GetString("description", "").Trim()));
+        }
+
+        return targets;
+    }
+
+    public static DeviceFilter? TryRead(IConfigNode? serviceNode)
+    {
+        var filters = new List<DeviceFilter>();
+        foreach (var target in ReadTargets(serviceNode))
+        {
+            Add(filters, target.Filter);
         }
 
         if (filters.Count == 0)
@@ -61,3 +79,6 @@ public static class DeviceConnectionConfig
         }
     }
 }
+
+/// <summary>One host-JSON device entry: match rule plus an optional user label.</summary>
+public sealed record DeviceTarget(DeviceFilter Filter, string Description);

@@ -14,7 +14,8 @@
             {
               "type": "serial",
               "vendorId": "0x1546",
-              "productId": "0x01a9"
+              "productId": "0x01a9",
+              "description": "u-blox GNSS receiver - F9P"
             }
           ]
         }
