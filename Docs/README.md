@@ -1,6 +1,6 @@
 # Device Manager
 
-**Ape.Module.DeviceManager** is an optional Ape module: it watches USB HID and serial ports, opens them, and can publish `Device` replicas on the shared scene so other peers see the same hardware metadata and payload.
+**Ape.Module.DeviceManager** is an optional Ape module: when host JSON names a device, it watches that port, opens it, and can publish a `Device` replica on the shared scene so other peers see the same hardware metadata and payload. With no device target it connects to nothing and registers nothing.
 
 It is not part of Core. Core stays the scene, replica, and plugin host. This module is a vertical you add when a process needs real devices.
 
@@ -24,18 +24,32 @@ ape-skeleton/
         └── Ape.Module.DeviceManager/   ← this repository
 ```
 
-Enable it in `workspace.yaml` under `modules:` (`name: Ape.Module.DeviceManager`, this GitHub URL). Host JSON turns the service and plugins on:
+Enable it in `workspace.yaml` under `modules:` (`name: Ape.Module.DeviceManager`, this GitHub URL). Host JSON turns the service and plugins on. Run from the skeleton:
+
+```bash
+./ape run -c src/Ape.Modules/Ape.Module.DeviceManager/Samples/device-example.json
+```
 
 ```json
 "Ape.Module.DeviceManager": {
-  "services": { "DeviceManagerService": {} },
+  "services": {
+    "DeviceManagerService": {
+      "serial": {
+        "vendorId": "0x0403",
+        "productId": "0x6010",
+        "portIndex": 0
+      }
+    }
+  },
   "plugins": { "DeviceExample": {} }
 }
 ```
 
-Plugins resolve `IDeviceManager` from DI. Subscribe with filters (type, VID/PID, path). Open serial with `SerialPortOptions` parsed from host JSON (`baudRate`, `parity`, …) — hardware-specific line settings belong in the product host file, not in this module.
+`DeviceManagerService` with an empty object names no device, so the sample does not open a port or create a `Device` replica. A target is a `serial` object or a `devices` array entry with `vendorId` + `productId`, or a `path`.
 
-`DeviceExample` is a two-role sample: the server owns the port and writes `Device` replicas; a client can observe `DeviceData` over the network.
+Plugins resolve `IDeviceManager` from DI. Open serial with `SerialPortOptions` parsed from host JSON (`baudRate`, `parity`, …) — hardware-specific line settings belong in the product host file, not in this module.
+
+`DeviceExample` is a two-role sample: the server owns the configured port and writes `Device` replicas; a client can observe `DeviceData` over the network.
 
 Line settings, USB filters, and which plugin to load are configuration. The module does not hard-code a product board.
 

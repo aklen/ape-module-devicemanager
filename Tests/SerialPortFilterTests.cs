@@ -84,10 +84,94 @@ public class DeviceFilterSerialTests
 
         var manager = new Services.DeviceManagement.DeviceManager(null!, null!, enumerator);
         var filter = DeviceFilter.ByVendorProduct(0x0403, 0x6010).And(DeviceFilter.ByPortIndex(0));
+        manager.SetConnectionFilter(filter);
         var matches = manager.QuerySerialPorts(filter);
 
         Assert.Single(matches);
         Assert.Equal("/dev/cu.usbserial-1200", matches[0].DevicePath);
+    }
+
+    [Fact]
+    public void QuerySerialPorts_returns_empty_when_config_names_no_device()
+    {
+        var enumerator = new SerialPortEnumerator.PassthroughSerialPortEnumerator(
+        [
+            new SerialPortInfo("/dev/cu.Bluetooth-Incoming-Port"),
+            new SerialPortInfo("/dev/cu.usbserial-1200", 0x0403, 0x6010, portIndex: 0),
+        ]);
+
+        var manager = new Services.DeviceManagement.DeviceManager(null!, null!, enumerator);
+        var matches = manager.QuerySerialPorts(DeviceFilter.ByType(DeviceType.Serial));
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
+    public void QuerySerialPorts_returns_only_the_configured_path()
+    {
+        var enumerator = new SerialPortEnumerator.PassthroughSerialPortEnumerator(
+        [
+            new SerialPortInfo("/dev/cu.Bluetooth-Incoming-Port"),
+            new SerialPortInfo("/dev/cu.usbserial-1200", 0x0403, 0x6010, portIndex: 0),
+        ]);
+
+        var manager = new Services.DeviceManagement.DeviceManager(null!, null!, enumerator);
+        manager.SetConnectionFilter(DeviceFilter.ByPath("/dev/cu.usbserial-1200"));
+        var matches = manager.QuerySerialPorts(DeviceFilter.ByType(DeviceType.Serial));
+
+        Assert.Single(matches);
+        Assert.Equal("/dev/cu.usbserial-1200", matches[0].DevicePath);
+    }
+}
+
+public class DeviceConnectionConfigTests
+{
+    [Fact]
+    public void TryRead_returns_null_for_empty_service()
+    {
+        Assert.Null(DeviceConnectionConfig.TryRead(null));
+        Assert.Null(DeviceConnectionConfig.TryRead(new Ape.Core.Config.Models.ConfigNode()));
+    }
+
+    [Fact]
+    public void TryRead_matches_vendor_product_from_serial_object()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var serial = service.GetObject("serial");
+        serial.SetString("vendorId", "0x0403");
+        serial.SetString("productId", "0x6010");
+        serial.SetInt("portIndex", 0);
+
+        var filter = DeviceConnectionConfig.TryRead(service);
+        Assert.NotNull(filter);
+
+        var match = SerialPortDeviceFactory.ToDeviceInternal(
+            new SerialPortInfo("/dev/cu.usbserial-1200", 0x0403, 0x6010, portIndex: 0));
+        var other = SerialPortDeviceFactory.ToDeviceInternal(
+            new SerialPortInfo("/dev/cu.Bluetooth-Incoming-Port"));
+
+        Assert.True(filter!.Predicate(match));
+        Assert.False(filter.Predicate(other));
+    }
+
+    [Fact]
+    public void TryRead_matches_path_entry()
+    {
+        var service = new Ape.Core.Config.Models.ConfigNode();
+        var entry = new Ape.Core.Config.Models.ConfigNode();
+        entry.SetString("path", "/dev/cu.usbserial-1200");
+        service.PushArrayElement("devices", entry);
+
+        var filter = DeviceConnectionConfig.TryRead(service);
+        Assert.NotNull(filter);
+
+        var match = SerialPortDeviceFactory.ToDeviceInternal(
+            new SerialPortInfo("/dev/cu.usbserial-1200"));
+        var other = SerialPortDeviceFactory.ToDeviceInternal(
+            new SerialPortInfo("/dev/cu.JBLCharge4"));
+
+        Assert.True(filter!.Predicate(match));
+        Assert.False(filter.Predicate(other));
     }
 }
 

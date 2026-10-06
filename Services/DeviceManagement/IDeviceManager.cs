@@ -49,7 +49,8 @@ public interface IDeviceManager
     void Unsubscribe(Guid subscriptionId);
 
     /// <summary>
-    /// Open a serial port by path with explicit line settings (bypasses device discovery).
+    /// Open a serial port by path with explicit line settings.
+    /// The path must match a device named in host config; otherwise this throws.
     /// Returns a cached handler for the same path and options.
     /// </summary>
     IDeviceDataHandler OpenSerial(string devicePath, SerialPortOptions? options = null);
@@ -63,8 +64,8 @@ public interface IDeviceManager
     IDeviceDataHandler? GetDataHandler(IDevice device);
 
     /// <summary>
-    /// Enumerate serial ports with USB metadata and return those matching <paramref name="filter"/>.
-    /// Does not require an active <see cref="Subscribe"/> — use for open-by-VID/PID/port.
+    /// Enumerate serial ports with USB metadata and return those matching <paramref name="filter"/>
+    /// and the device target in host config. Returns an empty list when config names no device.
     /// </summary>
     List<IDevice> QuerySerialPorts(DeviceFilter filter);
 

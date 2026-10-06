@@ -13,17 +13,25 @@ public static class SerialPortFilterReader
             return null;
         }
 
+        var path = FirstPath(serialNode);
         var vendorId = ParseHexId(serialNode.GetString("vendorId", ""));
         var productId = ParseHexId(serialNode.GetString("productId", ""));
-        if (vendorId == 0 || productId == 0)
+        var hasUsbIds = vendorId != 0 && productId != 0;
+        if (!hasUsbIds && string.IsNullOrWhiteSpace(path))
         {
             return null;
         }
 
-        var filter = DeviceFilter.ByType(DeviceType.Serial)
-            .And(DeviceFilter.ByVendorProduct(vendorId, productId));
+        var filter = hasUsbIds
+            ? DeviceFilter.ByType(DeviceType.Serial).And(DeviceFilter.ByVendorProduct(vendorId, productId))
+            : DeviceFilter.ByType(DeviceType.Serial).And(DeviceFilter.ByPath(path));
 
-        if (applyPortIndex && serialNode.HasKey("portIndex"))
+        if (hasUsbIds && !string.IsNullOrWhiteSpace(path))
+        {
+            filter = filter.And(DeviceFilter.ByPath(path));
+        }
+
+        if (hasUsbIds && applyPortIndex && serialNode.HasKey("portIndex"))
         {
             filter = filter.And(DeviceFilter.ByPortIndex(serialNode.GetInt("portIndex")));
         }
@@ -41,6 +49,12 @@ public static class SerialPortFilterReader
         }
 
         return filter;
+    }
+
+    private static string FirstPath(IConfigNode serialNode)
+    {
+        var path = serialNode.GetString("path", "");
+        return string.IsNullOrWhiteSpace(path) ? serialNode.GetString("devicePath", "") : path;
     }
 
     private static int ParseHexId(string value)

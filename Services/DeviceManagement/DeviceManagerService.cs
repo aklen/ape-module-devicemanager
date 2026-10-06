@@ -1,3 +1,5 @@
+using Ape.Core.Config;
+using Ape.Core.Config.Models;
 using Ape.Core.Logging;
 using Ape.Core.Scene;
 using Ape.Core.Runtime.Service;
@@ -19,6 +21,7 @@ public sealed class DeviceManagerService : IPluggableService
     private DeviceManager? _deviceManager;
     private ISceneManager? _sceneManager;
     private ILogger? _logger;
+    private bool _targetsConfigured;
 
     /// <summary>
     /// Register IDeviceManager interface in DI container.
@@ -47,6 +50,13 @@ public sealed class DeviceManagerService : IPluggableService
         }
 
         _deviceManager = new DeviceManager(_sceneManager, _logger);
+        var connection = DeviceConnectionConfig.TryRead(ReadServiceNode(services));
+        _targetsConfigured = connection != null;
+        _deviceManager.SetConnectionFilter(connection);
+        if (!_targetsConfigured)
+        {
+            _logger.LogInfo($"[{Name}] No device target in config — not connecting or registering devices.");
+        }
 
         _logger.LogDebug($"[{Name}] Initialized");
     }
@@ -59,6 +69,12 @@ public sealed class DeviceManagerService : IPluggableService
         if (_deviceManager == null)
         {
             _logger?.LogWarning($"[{Name}] Cannot start - not initialized");
+            return;
+        }
+
+        if (!_targetsConfigured)
+        {
+            _logger?.LogInfo($"[{Name}] Device monitoring idle — waiting for a device target in config.");
             return;
         }
 
@@ -89,5 +105,12 @@ public sealed class DeviceManagerService : IPluggableService
         {
             _logger?.LogWarning($"[{Name}] Stop error (ignored): {ex.Message}");
         }
+    }
+
+    private static IConfigNode? ReadServiceNode(IServiceProvider services)
+    {
+        var startup = services.GetService<IStartupConfig>();
+        var moduleTable = services.GetService<IModuleTable>();
+        return DeviceConnectionConfig.ServiceNode(startup?.Root, moduleTable);
     }
 }

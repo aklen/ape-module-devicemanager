@@ -52,6 +52,7 @@ public class DeviceManager : IDeviceManager
     private readonly Dictionary<Guid, Subscription> _subscriptions = new(); // SubscriptionId → Subscription
     private readonly ISerialPortEnumerator _serialPortEnumerator;
     private readonly object _lock = new();
+    private DeviceFilter? _connectionFilter;
 
     private Task? _scanTask;
     private CancellationTokenSource? _cts;
@@ -62,6 +63,17 @@ public class DeviceManager : IDeviceManager
         _sceneManager = sceneManager;
         _logger = logger;
         _serialPortEnumerator = serialPortEnumerator ?? SerialPortEnumerator.CreateDefault();
+    }
+
+    /// <summary>
+    /// Devices the host JSON named. <see langword="null"/> admits nothing: no scan hits, no port open, no scene publish.
+    /// </summary>
+    internal void SetConnectionFilter(DeviceFilter? filter)
+    {
+        lock (_lock)
+        {
+            _connectionFilter = filter;
+        }
     }
 
     /// <summary>
@@ -138,16 +150,33 @@ public class DeviceManager : IDeviceManager
     /// </summary>
     public void Stop()
     {
-        if (_cts == null || _scanTask == null)
+        CancellationTokenSource? cts;
+        Task? scan;
+        lock (_lock)
         {
-            return;
+            cts = _cts;
+            scan = _scanTask;
+            _cts = null;
+            _scanTask = null;
         }
 
-        _cts.Cancel();
-        _scanTask.Wait(TimeSpan.FromSeconds(2));
-        _cts.Dispose();
-        _cts = null;
-        _scanTask = null;
+        if (cts == null)
+            return;
+
+        try
+        {
+            cts.Cancel();
+            scan?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug($"[DeviceManager] Stop wait: {ex.Message}");
+        }
+        finally
+        {
+            cts.Dispose();
+        }
+
         _logger.LogInfo("[DeviceManager] Stopped");
     }
 
@@ -156,6 +185,12 @@ public class DeviceManager : IDeviceManager
     /// </summary>
     public IDeviceDataHandler OpenSerial(string devicePath, SerialPortOptions? options = null)
     {
+        if (!IsPathConfigured(devicePath))
+        {
+            _logger.LogWarning($"[DeviceManager] Refusing to open {devicePath}: not listed in config.");
+            throw new InvalidOperationException($"Serial port '{devicePath}' is not configured.");
+        }
+
         var opts = options ?? new SerialPortOptions();
         var cacheKey = $"{devicePath}|{opts.BaudRate}|{opts.Parity}|{opts.DataBits}|{(int)opts.StopBits}";
 
@@ -180,6 +215,12 @@ public class DeviceManager : IDeviceManager
     /// <returns>Device data handler, or null if device type not supported</returns>
     public IDeviceDataHandler? GetDataHandler(IDevice device)
     {
+        if (!IsConfiguredDevice(device))
+        {
+            _logger.LogWarning($"[DeviceManager] Refusing handler for {device.DevicePath}: not listed in config.");
+            return null;
+        }
+
         if (device.DeviceType == DeviceType.Serial)
         {
             return new SerialDataHandler(device.DevicePath, _logger);
@@ -198,10 +239,16 @@ public class DeviceManager : IDeviceManager
     {
         ArgumentNullException.ThrowIfNull(filter);
 
+        var connection = ConnectionFilter();
+        if (connection == null)
+        {
+            return [];
+        }
+
         return _serialPortEnumerator.Enumerate()
             .Select(SerialPortDeviceFactory.ToDeviceInternal)
             .Cast<IDevice>()
-            .Where(filter.Predicate)
+            .Where(device => connection.Predicate(device) && filter.Predicate(device))
             .ToList();
     }
 
@@ -253,6 +300,11 @@ public class DeviceManager : IDeviceManager
 
     private async Task ScanDevicesAsync()
     {
+        if (ConnectionFilter() == null)
+        {
+            return;
+        }
+
         var currentDevices = new HashSet<string>();
         var newDevicesCreated = false;
 
@@ -306,6 +358,9 @@ public class DeviceManager : IDeviceManager
                             LastUpdate = DateTime.UtcNow
                         };
                         
+                        if (!IsConfiguredDevice(deviceNodeInternal))
+                            continue;
+
                         // Test filter predicates on the lightweight object
                         bool matchesAnyFilter = _subscriptions.Values.Any(sub => sub.Filter.Predicate(deviceNodeInternal));
                         
@@ -344,6 +399,8 @@ public class DeviceManager : IDeviceManager
                             continue;
 
                         var deviceNodeInternal = SerialPortDeviceFactory.ToDeviceInternal(portInfo);
+                        if (!IsConfiguredDevice(deviceNodeInternal))
+                            continue;
 
                         bool matchesAnyFilter = _subscriptions.Values.Any(sub => sub.Filter.Predicate(deviceNodeInternal));
 
@@ -431,6 +488,34 @@ public class DeviceManager : IDeviceManager
                 });
             }
         }
+    }
+
+    private DeviceFilter? ConnectionFilter()
+    {
+        lock (_lock)
+        {
+            return _connectionFilter;
+        }
+    }
+
+    private bool IsConfiguredDevice(IDevice device)
+    {
+        var connection = ConnectionFilter();
+        return connection != null && connection.Predicate(device);
+    }
+
+    private bool IsPathConfigured(string devicePath)
+    {
+        var connection = ConnectionFilter();
+        if (connection == null || string.IsNullOrWhiteSpace(devicePath))
+        {
+            return false;
+        }
+
+        return _serialPortEnumerator.Enumerate()
+            .Select(SerialPortDeviceFactory.ToDeviceInternal)
+            .Any(device => string.Equals(device.DevicePath, devicePath, StringComparison.OrdinalIgnoreCase)
+                           && connection.Predicate(device));
     }
 
     private class Subscription
