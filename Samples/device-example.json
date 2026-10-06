@@ -1,0 +1,19 @@
+{
+  "modules": {
+    "Ape.Core.Network": {
+      "enabled": false,
+      "transport": "quic",
+      "role": "server",
+      "port": 9050,
+      "peerName": "device-demo"
+    },
+    "Ape.Module.DeviceManager": {
+      "services": {
+        "DeviceManagerService": {}
+      },
+      "plugins": {
+        "DeviceExample": {}
+      }
+    }
+  }
+}
