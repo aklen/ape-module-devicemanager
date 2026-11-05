@@ -46,13 +46,13 @@ internal sealed partial class LinuxSerialPortEnumerator : ISerialPortEnumerator
 
         try
         {
-            var target = Path.GetFullPath(byIdPath);
-            if (!File.Exists(target))
+            var resolved = ResolveCalloutPath(byIdPath);
+            if (!File.Exists(resolved))
             {
                 return false;
             }
 
-            ttyPath = target;
+            ttyPath = resolved;
             return true;
         }
         catch
@@ -92,10 +92,14 @@ internal sealed partial class LinuxSerialPortEnumerator : ISerialPortEnumerator
         }
     }
 
-    private static string? FindUsbDeviceDirectory(string startDir)
+    /// <summary>
+    /// Walks from the tty <c>device</c> node to the USB device directory that holds <c>idVendor</c>.
+    /// <c>/sys/class/tty/ttyACM*</c> and its <c>device</c> entry are relative symlinks, so the walk uses the physical path.
+    /// </summary>
+    internal static string? FindUsbDeviceDirectory(string startDir)
     {
-        var current = new DirectoryInfo(startDir);
-        for (var depth = 0; depth < 6 && current != null; depth++, current = current.Parent)
+        var current = new DirectoryInfo(Canonicalize(startDir));
+        for (var depth = 0; depth < 8 && current != null; depth++, current = current.Parent)
         {
             if (File.Exists(Path.Combine(current.FullName, "idVendor"))
                 && File.Exists(Path.Combine(current.FullName, "idProduct")))
@@ -105,6 +109,72 @@ internal sealed partial class LinuxSerialPortEnumerator : ISerialPortEnumerator
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// <c>Path.GetFullPath</c> keeps a symlink path as written.
+    /// Relative link text is applied to the physical parent, which is what <c>/sys/class/tty</c> needs.
+    /// </summary>
+    private static string ResolveCalloutPath(string path) => Canonicalize(path);
+
+    internal static string Canonicalize(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full);
+        if (string.IsNullOrEmpty(root))
+        {
+            return full;
+        }
+
+        var parts = full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        var current = root;
+        foreach (var part in parts)
+        {
+            current = Path.Combine(current, part);
+            current = FollowLink(current);
+        }
+
+        return current.Length > root.Length
+            ? current.TrimEnd(Path.DirectorySeparatorChar)
+            : current;
+    }
+
+    private static string FollowLink(string path)
+    {
+        for (var hop = 0; hop < 16; hop++)
+        {
+            string? raw;
+            try
+            {
+                raw = new FileInfo(path).LinkTarget;
+            }
+            catch (IOException)
+            {
+                return path;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return path;
+            }
+
+            if (string.IsNullOrEmpty(raw))
+            {
+                return path;
+            }
+
+            var parent = Path.GetDirectoryName(path.TrimEnd(Path.DirectorySeparatorChar)) ?? Path.GetPathRoot(path)!;
+            var next = Path.IsPathRooted(raw)
+                ? Path.GetFullPath(raw)
+                : Path.GetFullPath(Path.Combine(parent, raw));
+            if (string.Equals(next, path, StringComparison.Ordinal))
+            {
+                return path;
+            }
+
+            path = next;
+        }
+
+        return path;
     }
 
     private static int ReadHexId(string path)
