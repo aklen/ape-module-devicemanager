@@ -351,3 +351,84 @@ public class SerialPortOptionsParseTests
         Assert.Equal(115200, SerialPortOptions.Parse(null, fallback).BaudRate);
     }
 }
+
+public class LinuxSysfsUsbIdTests
+{
+    [Fact]
+    public void TryResolveByIdLink_returns_the_tty_node()
+    {
+        var root = Directory.CreateTempSubdirectory("smc-byid-");
+        try
+        {
+            var tty = Path.Combine(root.FullName, "ttyACM1");
+            File.WriteAllText(tty, "");
+            var byIdDir = Path.Combine(root.FullName, "by-id");
+            Directory.CreateDirectory(byIdDir);
+            var link = Path.Combine(byIdDir, "usb-ELINGA_SMC_3G_X26_ABCDEF-if00");
+            File.CreateSymbolicLink(link, Path.GetRelativePath(byIdDir, tty));
+
+            Assert.True(LinuxSerialPortEnumerator.TryResolveByIdLink(link, out var ttyPath, out var portIndex));
+            Assert.Equal(tty, ttyPath);
+            Assert.Equal(-1, portIndex);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindUsbDeviceDirectory_follows_tty_device_symlink()
+    {
+        var root = Directory.CreateTempSubdirectory("smc-sysfs-");
+        try
+        {
+            var iface = Path.Combine(root.FullName, "devices", "3-5.1", "3-5.1:1.0");
+            Directory.CreateDirectory(iface);
+            var usb = Directory.GetParent(iface)!;
+            File.WriteAllText(Path.Combine(usb.FullName, "idVendor"), "0483\n");
+            File.WriteAllText(Path.Combine(usb.FullName, "idProduct"), "5741\n");
+
+            var linkDir = Path.Combine(root.FullName, "class", "tty", "ttyACM1");
+            Directory.CreateDirectory(linkDir);
+            var link = Path.Combine(linkDir, "device");
+            Directory.CreateSymbolicLink(link, Path.GetRelativePath(linkDir, iface));
+
+            var found = LinuxSerialPortEnumerator.FindUsbDeviceDirectory(link);
+
+            Assert.Equal(usb.FullName, found);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindUsbDeviceDirectory_follows_class_tty_symlink()
+    {
+        var root = Directory.CreateTempSubdirectory("smc-class-");
+        try
+        {
+            var usb = Path.Combine(root.FullName, "devices", "3-5.1");
+            var physicalTty = Path.Combine(usb, "3-5.1:1.0", "tty", "ttyACM1");
+            Directory.CreateDirectory(physicalTty);
+            File.WriteAllText(Path.Combine(usb, "idVendor"), "0483\n");
+            File.WriteAllText(Path.Combine(usb, "idProduct"), "5741\n");
+            Directory.CreateSymbolicLink(Path.Combine(physicalTty, "device"), "../../../3-5.1:1.0");
+
+            var classDir = Path.Combine(root.FullName, "class", "tty");
+            Directory.CreateDirectory(classDir);
+            var classTty = Path.Combine(classDir, "ttyACM1");
+            Directory.CreateSymbolicLink(classTty, Path.GetRelativePath(classDir, physicalTty));
+
+            var found = LinuxSerialPortEnumerator.FindUsbDeviceDirectory(Path.Combine(classTty, "device"));
+
+            Assert.Equal(usb, found);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+}
