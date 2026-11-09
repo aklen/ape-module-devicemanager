@@ -7,7 +7,9 @@ internal static class SerialPortEnumerator
             ? new LinuxSerialPortEnumerator()
             : OperatingSystem.IsMacOS()
                 ? new MacSerialPortEnumerator()
-                : new PassthroughSerialPortEnumerator(FallbackSerialPortEnumerator.EnumeratePathOnly());
+                : OperatingSystem.IsWindows()
+                    ? new WindowsSerialPortEnumerator()
+                    : new PassthroughSerialPortEnumerator(FallbackSerialPortEnumerator.EnumeratePathOnly());
 
     internal sealed class PassthroughSerialPortEnumerator(IReadOnlyList<SerialPortInfo> ports) : ISerialPortEnumerator
     {
